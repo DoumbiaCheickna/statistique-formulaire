@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Statistiques des Évaluations</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background: #f7f7f7;
+    }
+    h2 {
+      color: #003366;
+    }
+    .flex-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .global-section, .comments-section {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      flex: 1;
+      min-width: 300px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .comments-section ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .comments-section li {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+    }
+    .teacher-stats {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+      margin-top: 30px;
+    }
+    .teacher-card {
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      flex: 1 1 calc(33% - 20px);
+      box-sizing: border-box;
+    }
+    canvas {
+      width: 100% !important;
+      height: auto !important;
+    }
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .header img {
+      height: 30px;
+      margin-right: 50px;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="IBS_NOIR.png" alt="Logo" />
+    <h2>STATISTIQUE DU SECOND SEMESTRE
+</h2>
+  </div>
+  <label for="classe">Choisir une classe :</label>
+  <select id="classe">
+    <option value="">-- Sélectionner --</option>
+<option value="L1 GL">L1 GL</option>
+      <option value="L1 Data IA">L1 Data IA</option>
+      <option value="L1 DWM">L1 DWM</option>
+      <option value="L1 CS">L1 CS</option>
+      <option value="L1 MPG">L1 MPG</option>
+      <option value="L1 AD">L1 AD</option>
+      <option value="L1 MCD">L1 MCD</option>
+      <option value="L2 GL">L2 GL</option>
+      <option value="L2 Data IA">L2 Data IA</option>
+      <option value="L2 DWM">L2 DWM</option>
+      <option value="L2 AD">L2 AD</option>
+      <option value="L2 ME">L2 ME</option>
+      <option value="L2 MCD">L2 MCD</option>
+  </select>
+
+  <div class="flex-row">
+    <div class="global-section">
+      <h3>Statistique Globale</h3>
+      <canvas id="globalChart"></canvas>
+      <div id="appreciation-globale"></div>
+    </div>
+    <div class="comments-section">
+      <h3>Commentaires</h3>
+      <ul id="comment-list"></ul>
+    </div>
+  </div>
+
+  <div class="teacher-stats" id="teacher-stats"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDq0B-y0VB3O8COblqDkuzkGNh2vR20S3U",
+      authDomain: "drop-5096a.firebaseapp.com",
+      projectId: "drop-5096a",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    const classeSelect = document.getElementById("classe");
+    const globalChartCtx = document.getElementById("globalChart").getContext("2d");
+    let globalChartInstance = null;
+
+    classeSelect.addEventListener("change", () => {
+      const classe = classeSelect.value;
+      if (classe) loadData(classe);
+    });
+
+    function getAppreciation(data) {
+      const total = data.A + data.B + data.C;
+      const score = (data.C * 3 + data.B * 2 + data.A * 1) / (total || 1);
+      if (score >= 2.5) return "🌟 Très bon";
+      if (score >= 1.5) return "📅 Bon";
+      return "⚠️ Peut mieux faire";
+    }
+
+    async function loadData(classe) {
+      const snapshot = await db.collection("evaluations").where("classe", "==", classe).get();
+      const evaluations = snapshot.docs.map(doc => doc.data());
+
+      const global = { A: 0, B: 0, C: 0 };
+      const comments = [];
+      const teacherMap = {};
+
+      evaluations.forEach(evaluation => {
+        comments.push(evaluation.commentaires);
+        Object.entries(evaluation.reponses).forEach(([key, val]) => {
+          if (!val) return;
+          const [prof, question] = key.split(/_(q\d+)/i);
+          if (!teacherMap[prof]) teacherMap[prof] = { A: 0, B: 0, C: 0 };
+          teacherMap[prof][val]++;
+          global[val]++;
+        });
+      });
+
+      renderGlobalChart(global);
+      renderComments(comments);
+      renderTeacherCharts(teacherMap);
+    }
+
+    function renderGlobalChart(data) {
+      if (globalChartInstance) globalChartInstance.destroy();
+      globalChartInstance = new Chart(globalChartCtx, {
+        type: 'pie',
+        data: {
+          labels: ['Pas mal (A)', 'Bon (B)', 'Très bien (C)'],
+          datasets: [{
+            data: [data.A, data.B, data.C],
+            backgroundColor: ['#FF6384', '#FFCE56', '#36A2EB']
+          }]
+        }
+      });
+      document.getElementById("appreciation-globale").innerText = getAppreciation(data);
+    }
+
+    function renderComments(comments) {
+      const ul = document.getElementById("comment-list");
+      ul.innerHTML = "";
+      comments.forEach(c => {
+        const li = document.createElement("li");
+        li.innerText = c;
+        ul.appendChild(li);
+      });
+    }
+
+    function renderTeacherCharts(map) {
+      const container = document.getElementById("teacher-stats");
+      container.innerHTML = "";
+
+      Object.entries(map).forEach(([prof, data], i) => {
+        const div = document.createElement("div");
+        div.className = "teacher-card";
+        div.innerHTML = `<h4>${prof}</h4><canvas id="chart-${i}"></canvas><p>${getAppreciation(data)}</p>`;
+        container.appendChild(div);
+
+        const ctx = div.querySelector("canvas").getContext("2d");
+        new Chart(ctx, {
+          type: 'pie',
+          data: {
+            labels: ['Pas mal (A)', 'Bon (B)', 'Très bien (C)'],
+            datasets: [{
+              data: [data.A, data.B, data.C],
+              backgroundColor: ['#FF6384', '#FFCE56', '#36A2EB']
+            }]
+          }
+        });
+      });
+    }
+  </script>
+</body>
+</html>
+
